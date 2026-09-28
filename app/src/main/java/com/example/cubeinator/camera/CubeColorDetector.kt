@@ -50,6 +50,10 @@ data class ReticleDetectionResult(
   val colors: List<CubeColor>,
   val sampledRgbHex: List<Int>,
   val confidence: Float,
+  val detectedCenterColor: CubeColor = colors.getOrElse(4) { CubeColor.GREEN },
+  val centerLabHueDeg: Float = 0f,
+  val warmOrangenessScores: FloatArray = FloatArray(9) { Float.NaN },
+  val isFaceAligned: Boolean = true,
 )
 
 /**
@@ -114,6 +118,7 @@ object CubeColorDetector {
 
     val cellRigbTriples = Array(9) { IntArray(3) }
     val rgbColors = ArrayList<Int>(9)
+    var uniformCellsCount = 0
 
     for (screenRow in 0..2) {
       for (screenCol in 0..2) {
@@ -152,24 +157,31 @@ object CubeColorDetector {
         }
 
         val (repR, repG, repB) = computeGlareResistantRgb(sampledPixels)
+        if (isCellUniformSticker(sampledPixels, repR, repG, repB)) {
+          uniformCellsCount++
+        }
         cellRigbTriples[cellIdx] = intArrayOf(repR, repG, repB)
         rgbColors.add(AndroidColor.rgb(repR, repG, repB))
       }
     }
 
-    // Extract live center cell (index 4) Lab color to assist relative Red/Orange separation
+    // Extract live center cell (index 4) Lab color & hue angle
     val centerRgb = cellRigbTriples[4]
     val centerLab = rgbToLab(centerRgb[0], centerRgb[1], centerRgb[2])
-    if (targetFace != null) {
-      // Only update live calibration if the center sticker is reasonably saturated (for non-white faces)
-      if (targetFace.defaultColor == CubeColor.RED && centerLab.chroma > 22f) {
-        calibratedCenters[CubeColor.RED] = centerLab
-      } else if (targetFace.defaultColor == CubeColor.ORANGE && centerLab.chroma > 22f) {
-        calibratedCenters[CubeColor.ORANGE] = centerLab
-      }
-    }
+    val centerLabHueDeg = (atan2(centerLab.b.toDouble(), centerLab.a.coerceAtLeast(1f).toDouble()) * (180.0 / PI)).toFloat()
+
+    // First classify the center cell to know which face is actually in front of the camera
+    val (rawCenterColor, _) = classifyRgb(
+      r = centerRgb[0],
+      g = centerRgb[1],
+      b = centerRgb[2],
+      targetFace = null,
+      liveCenterLab = null,
+    )
+    val effectiveFace = rawCenterColor.homeFace
 
     val detectedColors = ArrayList<CubeColor>(9)
+    val warmScores = FloatArray(9) { Float.NaN }
     var totalConfidence = 0f
 
     for (idx in 0 until 9) {
@@ -178,25 +190,180 @@ object CubeColorDetector {
         r = rgb[0],
         g = rgb[1],
         b = rgb[2],
-        targetFace = targetFace,
+        targetFace = effectiveFace,
         liveCenterLab = centerLab,
       )
       detectedColors.add(color)
       totalConfidence += conf
+      if (color == CubeColor.RED || color == CubeColor.ORANGE) {
+        warmScores[idx] = computeWarmOrangenessScore(rgb[0], rgb[1], rgb[2])
+      }
     }
 
     // Within-frame relative refinement if a face contains multiple warm (Red/Orange) stickers
     val refinedColors = refineWarmStickersInFrame(
       initialColors = detectedColors,
       cellRgb = cellRigbTriples,
-      targetFace = targetFace,
+      targetFace = effectiveFace,
+    )
+
+    val avgConfidence = (totalConfidence / 9f).coerceIn(0f, 1f)
+    val isFaceAligned = isRealCubeFacePresent(
+      cellRgb = cellRigbTriples,
+      colors = refinedColors,
+      uniformCellsCount = uniformCellsCount,
+      avgConfidence = avgConfidence,
+      yBuffer = yBuffer,
+      yRowStride = yRowStride,
+      yPixelStride = yPixelStride,
+      startX = startX,
+      startY = startY,
+      cellSpan = cellSpan,
+      width = width,
+      height = height,
     )
 
     return ReticleDetectionResult(
       colors = refinedColors,
       sampledRgbHex = rgbColors,
-      confidence = (totalConfidence / 9f).coerceIn(0f, 1f),
+      confidence = avgConfidence,
+      detectedCenterColor = refinedColors[4],
+      centerLabHueDeg = centerLabHueDeg,
+      warmOrangenessScores = warmScores,
+      isFaceAligned = isFaceAligned,
     )
+  }
+
+  /**
+   * Verifies that the 3x3 reticle actually contains a physical Rubik's Cube face rather than
+   * a desk, wall, floor, skin, or random background:
+   * 1. At least 8 of 9 cells must be spatially uniform sticker interiors.
+   * 2. The center cell and at least 8 of 9 cells must have genuine Rubik's Cube sticker properties:
+   *    either vivid chromatic plastic (high saturation & Lab chroma) or clean bright White.
+   *    This rejects wooden desks, skin tones, beige walls, and dim shadows.
+   * 3. If all 9 cells classify as the exact same color (e.g. all White), requires physical 3x3
+   *    cubie seam contrast along the grid boundaries so a flat white wall or paper is never scanned.
+   */
+  private fun isRealCubeFacePresent(
+    cellRgb: Array<IntArray>,
+    colors: List<CubeColor>,
+    uniformCellsCount: Int,
+    avgConfidence: Float,
+    yBuffer: java.nio.ByteBuffer,
+    yRowStride: Int,
+    yPixelStride: Int,
+    startX: Float,
+    startY: Float,
+    cellSpan: Float,
+    width: Int,
+    height: Int,
+  ): Boolean {
+    if (uniformCellsCount < 8 || avgConfidence < 0.75f) return false
+
+    val hsv = FloatArray(3)
+    var validStickerCells = 0
+    var vividChromaticCells = 0
+    var centerIsValidSticker = false
+
+    for (i in 0 until 9) {
+      val rgb = cellRgb[i]
+      AndroidColor.RGBToHSV(rgb[0], rgb[1], rgb[2], hsv)
+      val sat = hsv[1]
+      val value = hsv[2]
+      val lab = rgbToLab(rgb[0], rgb[1], rgb[2])
+
+      val isVividColoredSticker = sat >= 0.38f && value >= 0.34f && lab.chroma >= 24f
+      val isCleanBrightWhiteSticker = sat <= 0.22f && value >= 0.54f && lab.chroma <= 15f && lab.l >= 56f
+
+      if (isVividColoredSticker || isCleanBrightWhiteSticker) {
+        validStickerCells++
+        if (i == 4) centerIsValidSticker = true
+      }
+      if (isVividColoredSticker) {
+        vividChromaticCells++
+      }
+    }
+
+    if (!centerIsValidSticker || validStickerCells < 8) return false
+
+    val distinctColors = colors.toSet().size
+    // A scrambled Rubik's Cube face with >= 2 distinct colors and vivid chromatic stickers is unmistakably a cube
+    if (distinctColors >= 2 && vividChromaticCells >= 2) {
+      return true
+    }
+
+    // If all 9 cells are the same color (e.g. solved face vs flat wall/paper), verify that physical
+    // cubie seams/gaps exist along the interior 3x3 grid boundaries around the center cell.
+    val centerLuma = (0.299f * cellRgb[4][0] + 0.587f * cellRgb[4][1] + 0.114f * cellRgb[4][2]).toInt()
+    val seamPoints = arrayOf(
+      (startX + 1.0f * cellSpan).toInt() to (startY + 1.5f * cellSpan).toInt(),
+      (startX + 2.0f * cellSpan).toInt() to (startY + 1.5f * cellSpan).toInt(),
+      (startX + 1.5f * cellSpan).toInt() to (startY + 1.0f * cellSpan).toInt(),
+      (startX + 1.5f * cellSpan).toInt() to (startY + 2.0f * cellSpan).toInt(),
+    )
+    var seamDropsFound = 0
+    for ((sx, sy) in seamPoints) {
+      var minSeamY = 255
+      for (d in -3..3) {
+        val px = (sx + d).coerceIn(0, width - 1)
+        val py = (sy + d).coerceIn(0, height - 1)
+        val yIdx = py * yRowStride + px * yPixelStride
+        if (yIdx in 0 until yBuffer.limit()) {
+          val yVal = yBuffer.get(yIdx).toInt() and 0xFF
+          if (yVal < minSeamY) minSeamY = yVal
+        }
+      }
+      if (centerLuma - minSeamY >= 18) {
+        seamDropsFound++
+      }
+    }
+    return seamDropsFound >= 2
+  }
+
+  /**
+   * Checks whether the sampled pixels within a cell belong to a reasonably flat, solid-colored sticker
+   * rather than high-contrast background clutter or motion blur across cubie borders.
+   */
+  private fun isCellUniformSticker(
+    pixels: List<IntArray>,
+    repR: Int,
+    repG: Int,
+    repB: Int,
+  ): Boolean {
+    if (pixels.isEmpty()) return false
+    val maxBrightness = maxOf(repR, repG, repB)
+    if (maxBrightness < 55) return false // Too dark (black plastic or shadow background)
+    var closeCount = 0
+    for (p in pixels) {
+      val dr = abs(p[0] - repR)
+      val dg = abs(p[1] - repG)
+      val db = abs(p[2] - repB)
+      if (dr + dg + db < 100) {
+        closeCount++
+      }
+    }
+    return closeCount >= (pixels.size * 0.65f).toInt()
+  }
+
+  /**
+   * Computes a continuous perceptual warm score where negative values (< 0) indicate Red
+   * and positive values (> 0) indicate Orange.
+   */
+  fun computeWarmOrangenessScore(r: Int, g: Int, b: Int): Float {
+    val lab = rgbToLab(r, g, b)
+    val floorB = min(b, g)
+    val redSpan = (r - floorB).coerceAtLeast(1)
+    val greenExcess = (g - floorB).coerceAtLeast(0)
+    val glareFreeGreenRatio = greenExcess.toFloat() / redSpan.toFloat()
+    val rawLabHueDeg = (atan2(lab.b.toDouble(), lab.a.coerceAtLeast(1f).toDouble()) * (180.0 / PI)).toFloat()
+
+    val labThreshold = 42.8f + redOrangeBiasDegrees
+    val greenRatioThreshold = 0.315f + (redOrangeBiasDegrees * 0.01f)
+
+    val labScore = (rawLabHueDeg - labThreshold) / 10f
+    val ratioScore = (glareFreeGreenRatio - greenRatioThreshold) / 0.10f
+    val lumaScore = (lab.l - 52f) / 25f
+    return 0.55f * labScore + 0.35f * ratioScore + 0.10f * lumaScore
   }
 
   /**

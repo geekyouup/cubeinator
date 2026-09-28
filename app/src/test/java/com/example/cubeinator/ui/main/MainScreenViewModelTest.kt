@@ -30,9 +30,11 @@ class MainScreenViewModelTest {
   }
 
   @Test
-  fun guidedFaceScan_advancesThroughAllSixFaces() {
+  fun guidedFaceScan_advancesThroughAllSixFacesAndAutoStops() {
     val viewModel = MainScreenViewModel()
-    viewModel.startFreshSixFaceScan()
+    assertFalse(viewModel.uiState.value.autoSnapEnabled)
+    viewModel.toggleAutoSnap()
+    assertTrue(viewModel.uiState.value.autoSnapEnabled)
     assertEquals(0, viewModel.uiState.value.capturedFaces.size)
     assertEquals(CubeFace.F, viewModel.uiState.value.currentScanFace)
 
@@ -40,5 +42,12 @@ class MainScreenViewModelTest {
       viewModel.simulateCameraScanOfCurrentFace()
     }
     assertEquals(6, viewModel.uiState.value.capturedFaces.size)
+    // Auto-scanning must stop automatically once all 6 faces are scanned
+    assertFalse(viewModel.uiState.value.autoSnapEnabled)
+
+    // Toggling scanning back ON after all 6 faces are scanned starts a fresh scan
+    viewModel.toggleAutoSnap()
+    assertTrue(viewModel.uiState.value.autoSnapEnabled)
+    assertEquals(0, viewModel.uiState.value.capturedFaces.size)
   }
 }

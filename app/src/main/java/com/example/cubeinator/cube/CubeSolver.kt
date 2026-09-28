@@ -25,7 +25,7 @@ object CubeSolver {
 
   // 8 Corners: URF(0), UFL(1), ULB(2), UBR(3), DFR(4), DLF(5), DBL(6), DRB(7)
   // Each triple is in clockwise order around the corner vertex starting from U or D.
-  private val CORNER_FACELETS: Array<IntArray> = arrayOf(
+  internal val CORNER_FACELETS: Array<IntArray> = arrayOf(
     intArrayOf(8, 9, 20),   // 0: URF (U8, R0, F2)
     intArrayOf(6, 18, 38),  // 1: UFL (U6, F0, L2)
     intArrayOf(0, 36, 47),  // 2: ULB (U0, L0, B2)
@@ -36,7 +36,7 @@ object CubeSolver {
     intArrayOf(35, 17, 51), // 7: DRB (D8, R8, B6)
   )
 
-  private val CORNER_COLORS: Array<Array<CubeColor>> = arrayOf(
+  internal val CORNER_COLORS: Array<Array<CubeColor>> = arrayOf(
     arrayOf(CubeColor.WHITE, CubeColor.RED, CubeColor.GREEN),     // 0: URF
     arrayOf(CubeColor.WHITE, CubeColor.GREEN, CubeColor.ORANGE),  // 1: UFL
     arrayOf(CubeColor.WHITE, CubeColor.ORANGE, CubeColor.BLUE),   // 2: ULB
@@ -48,7 +48,7 @@ object CubeSolver {
   )
 
   // 12 Edges: UR(0), UF(1), UL(2), UB(3), DR(4), DF(5), DL(6), DB(7), FR(8), FL(9), BL(10), BR(11)
-  private val EDGE_FACELETS: Array<IntArray> = arrayOf(
+  internal val EDGE_FACELETS: Array<IntArray> = arrayOf(
     intArrayOf(5, 10),  // 0: UR (U5, R1)
     intArrayOf(7, 19),  // 1: UF (U7, F1)
     intArrayOf(3, 37),  // 2: UL (U3, L1)
@@ -63,7 +63,7 @@ object CubeSolver {
     intArrayOf(48, 14), // 11: BR (B3, R5)
   )
 
-  private val EDGE_COLORS: Array<Array<CubeColor>> = arrayOf(
+  internal val EDGE_COLORS: Array<Array<CubeColor>> = arrayOf(
     arrayOf(CubeColor.WHITE, CubeColor.RED),     // 0: UR
     arrayOf(CubeColor.WHITE, CubeColor.GREEN),   // 1: UF
     arrayOf(CubeColor.WHITE, CubeColor.ORANGE),  // 2: UL
@@ -336,7 +336,7 @@ object CubeSolver {
     return CubeValidationResult.Valid
   }
 
-  private fun permutationParity(perm: IntArray): Int {
+  internal fun permutationParity(perm: IntArray): Int {
     var inversions = 0
     for (i in perm.indices) {
       for (j in i + 1 until perm.size) {

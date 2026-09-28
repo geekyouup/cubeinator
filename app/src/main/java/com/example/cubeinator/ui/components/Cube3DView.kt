@@ -24,13 +24,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -87,6 +91,7 @@ fun Cube3DCanvas(
   activeMove: CubeMove? = null,
   moveProgress: Float = 0f,
   highlightedFace: CubeFace? = activeMove?.face,
+  capturedFaces: Set<CubeFace> = CubeFace.entries.toSet(),
   yawDegrees: Float = -34f,
   pitchDegrees: Float = 25f,
   onOrbitChange: ((deltaYaw: Float, deltaPitch: Float) -> Unit)? = null,
@@ -156,6 +161,19 @@ fun Cube3DCanvas(
             // Check if this cubie face is on the exterior of the 3x3x3 cube
             val stickerColor = stickerForCubieFace(cubeState, ix, iy, iz, localFace)
             if (stickerColor != null) {
+              val isCenterCubie = (ix == 0 && iy == 0) || (ix == 0 && iz == 0) || (iy == 0 && iz == 0)
+              val isFaceCaptured = localFace in capturedFaces
+              val fill = if (isFaceCaptured || isCenterCubie) {
+                stickerColor.composeColor
+              } else {
+                Color(0xFF64748B)
+              }
+              val border = when {
+                inHighlightedFace -> Color.White.copy(alpha = 0.9f)
+                isFaceCaptured || isCenterCubie -> stickerColor.borderColor
+                else -> Color(0xFF94A3B8)
+              }
+
               val sCenter = center + normal * (cubieHalf + stickerLift)
               val s0 = rotateAroundAxis(sCenter + (uAxis * -stickerHalf) + (vAxis * -stickerHalf), layerAxis, layerAngleRad)
               val s1 = rotateAroundAxis(sCenter + (uAxis * stickerHalf) + (vAxis * -stickerHalf), layerAxis, layerAngleRad)
@@ -165,8 +183,8 @@ fun Cube3DCanvas(
               quads.add(
                 Quad3D(
                   vertices = listOf(s0, s1, s2, s3),
-                  fillColor = stickerColor.composeColor,
-                  strokeColor = if (inHighlightedFace) Color.White.copy(alpha = 0.85f) else stickerColor.borderColor,
+                  fillColor = fill,
+                  strokeColor = border,
                   isSticker = true,
                   isHighlightedLayer = inHighlightedFace,
                   depthBias = 0.03f,
@@ -359,6 +377,60 @@ private fun DrawScope.drawFaceTurnArrow(
     }
     drawPath(path = headPath, color = Color.Black.copy(alpha = 0.7f), style = Stroke(width = 5f, join = StrokeJoin.Round))
     drawPath(path = headPath, color = Color(0xFF38BDF8))
+
+    // Draw floating move notation badge (e.g. "U'" or "L2") right next to the direction arrow
+    val centerScreen = projectToScreen(transformToCamera(normal * 1.68f))
+    val tailScreen = points.first()
+    val badgeX = (centerScreen.x * 0.6f + tailScreen.x * 0.4f)
+      .coerceIn(28.dp.toPx(), (size.width - 28.dp.toPx()).coerceAtLeast(28.dp.toPx()))
+    val badgeY = (centerScreen.y * 0.6f + tailScreen.y * 0.4f)
+      .coerceIn(18.dp.toPx(), (size.height - 18.dp.toPx()).coerceAtLeast(18.dp.toPx()))
+
+    val pillW = 38.dp.toPx()
+    val pillH = 24.dp.toPx()
+    val pillTopLeft = Offset(badgeX - pillW / 2f, badgeY - pillH / 2f)
+    val pillCorner = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+    val faceColor = move.face.defaultColor
+
+    // Dark outer shadow + face-colored pill + crisp border
+    drawRoundRect(
+      color = Color.Black.copy(alpha = 0.75f),
+      topLeft = Offset(pillTopLeft.x - 1.5f, pillTopLeft.y - 1.5f),
+      size = Size(pillW + 3f, pillH + 3f),
+      cornerRadius = pillCorner,
+    )
+    drawRoundRect(
+      color = faceColor.composeColor,
+      topLeft = pillTopLeft,
+      size = Size(pillW, pillH),
+      cornerRadius = pillCorner,
+    )
+    drawRoundRect(
+      color = Color(0xFF38BDF8),
+      topLeft = pillTopLeft,
+      size = Size(pillW, pillH),
+      cornerRadius = pillCorner,
+      style = Stroke(width = 2.dp.toPx()),
+    )
+
+    val textColor = if (faceColor == CubeColor.WHITE || faceColor == CubeColor.YELLOW) {
+      Color(0xFF0F172A).toArgb()
+    } else {
+      Color.White.toArgb()
+    }
+    val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+      color = textColor
+      textAlign = android.graphics.Paint.Align.CENTER
+      textSize = 13.sp.toPx()
+      typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    }
+    val textOffsetY = (textPaint.descent() + textPaint.ascent()) / 2f
+    drawContext.canvas.nativeCanvas.drawText(
+      move.notation,
+      badgeX,
+      badgeY - textOffsetY,
+      textPaint,
+    )
   }
 }
 
@@ -430,6 +502,7 @@ private fun stickerForCubieFace(
 fun Cube2DNetView(
   cubeState: CubeState,
   highlightedFace: CubeFace? = null,
+  capturedFaces: Set<CubeFace> = CubeFace.entries.toSet(),
   onStickerClick: ((face: CubeFace, indexInFace: Int) -> Unit)? = null,
   cellSize: Dp = 18.dp,
   modifier: Modifier = Modifier,
@@ -451,6 +524,7 @@ fun Cube2DNetView(
         face = CubeFace.U,
         stickers = cubeState.faceStickers(CubeFace.U),
         isHighlighted = highlightedFace == CubeFace.U,
+        isCaptured = CubeFace.U in capturedFaces,
         cellSize = cellSize,
         onStickerClick = onStickerClick,
       )
@@ -468,6 +542,7 @@ fun Cube2DNetView(
           face = face,
           stickers = cubeState.faceStickers(face),
           isHighlighted = highlightedFace == face,
+          isCaptured = face in capturedFaces,
           cellSize = cellSize,
           onStickerClick = onStickerClick,
         )
@@ -484,6 +559,7 @@ fun Cube2DNetView(
         face = CubeFace.D,
         stickers = cubeState.faceStickers(CubeFace.D),
         isHighlighted = highlightedFace == CubeFace.D,
+        isCaptured = CubeFace.D in capturedFaces,
         cellSize = cellSize,
         onStickerClick = onStickerClick,
       )
@@ -499,11 +575,12 @@ fun MiniFaceGrid(
   stickers: List<CubeColor>,
   isHighlighted: Boolean,
   cellSize: Dp,
+  isCaptured: Boolean = true,
   onStickerClick: ((face: CubeFace, indexInFace: Int) -> Unit)? = null,
   modifier: Modifier = Modifier,
 ) {
-  val borderColor = if (isHighlighted) Color(0xFF38BDF8) else Color(0xFF334155)
-  val bgColor = if (isHighlighted) Color(0xFF1E293B) else Color(0xFF0F172A)
+  val borderColor = if (isHighlighted) Color(0xFF059669) else Color(0xFF475569)
+  val bgColor = if (isHighlighted) Color(0xFF064E3B) else Color(0xFF1E293B)
 
   Column(
     modifier = modifier
@@ -518,12 +595,17 @@ fun MiniFaceGrid(
         for (col in 0..2) {
           val idx = row * 3 + col
           val color = stickers[idx]
+          val showColor = isCaptured || idx == 4
           Box(
             modifier = Modifier
               .size(cellSize)
               .clip(RoundedCornerShape(3.dp))
-              .background(color.composeColor)
-              .border(0.75.dp, color.borderColor, RoundedCornerShape(3.dp))
+              .background(if (showColor) color.composeColor else Color(0xFF64748B))
+              .border(
+                0.75.dp,
+                if (showColor) color.borderColor else Color(0xFF94A3B8),
+                RoundedCornerShape(3.dp),
+              )
               .then(
                 if (onStickerClick != null) {
                   Modifier.clickable { onStickerClick(face, idx) }

@@ -529,7 +529,7 @@ private fun LiveDetectedCubeAndNetCard(
         // 3D Cube Model (auto-orbits and fills in colors as faces are detected)
         Box(
           modifier = Modifier
-            .weight(0.95f)
+            .weight(0.85f)
             .fillMaxHeight()
             .clipToBounds(),
           contentAlignment = Alignment.Center,
@@ -548,13 +548,14 @@ private fun LiveDetectedCubeAndNetCard(
         // 2D Flattened Layout (auto-fills each face and allows tap-to-edit)
         BoxWithConstraints(
           modifier = Modifier
-            .weight(1.05f)
+            .weight(1.15f)
             .fillMaxHeight(),
           contentAlignment = Alignment.Center,
         ) {
-          val cellW = (maxWidth - 42.dp) / 12f
-          val cellH = (maxHeight - 30.dp) / 9f
-          val dynamicCellSize = minOf(cellW, cellH).coerceIn(8.dp, 15.dp)
+          // 4 faces * 7.dp padding/gaps + 3 * 2.5.dp face gaps = 35.5.dp total horizontal overhead
+          val cellW = (maxWidth - 40.dp) / 12f
+          val cellH = (maxHeight - 28.dp) / 9f
+          val dynamicCellSize = minOf(cellW, cellH).coerceIn(6.dp, 15.dp)
           Cube2DNetView(
             cubeState = cubeState,
             highlightedFace = selectedFace,
@@ -853,9 +854,9 @@ private fun SolverWalkthroughTab(
                   .fillMaxHeight(),
                 contentAlignment = Alignment.Center,
               ) {
-                val splitCellW = (maxWidth - 42.dp) / 12f
-                val splitCellH = (maxHeight - 32.dp) / 9f
-                val splitCellSize = minOf(splitCellW, splitCellH).coerceIn(8.dp, 16.dp)
+                val splitCellW = (maxWidth - 54.dp) / 12f
+                val splitCellH = (maxHeight - 38.dp) / 9f
+                val splitCellSize = minOf(splitCellW, splitCellH).coerceIn(6.dp, 16.dp)
                 Cube2DNetView(
                   cubeState = state.displayedCubeState,
                   highlightedFace = renderActiveMove?.face,
@@ -901,9 +902,9 @@ private fun SolverWalkthroughTab(
                   .fillMaxWidth(),
                 contentAlignment = Alignment.Center,
               ) {
-                val splitCellW = (maxWidth - 42.dp) / 12f
-                val splitCellH = (maxHeight - 32.dp) / 9f
-                val splitCellSize = minOf(splitCellW, splitCellH).coerceIn(8.dp, 16.dp)
+                val splitCellW = (maxWidth - 54.dp) / 12f
+                val splitCellH = (maxHeight - 38.dp) / 9f
+                val splitCellSize = minOf(splitCellW, splitCellH).coerceIn(6.dp, 16.dp)
                 Cube2DNetView(
                   cubeState = state.displayedCubeState,
                   highlightedFace = renderActiveMove?.face,

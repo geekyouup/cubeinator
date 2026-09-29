@@ -507,8 +507,8 @@ fun Cube2DNetView(
   cellSize: Dp = 18.dp,
   modifier: Modifier = Modifier,
 ) {
-  val faceGap = if (cellSize < 14.dp) 3.dp else 4.dp
-  val faceWidth = cellSize * 3 + 10.dp
+  val faceGap = if (cellSize < 14.dp) 2.5.dp else 3.5.dp
+  val faceWidth = cellSize * 3 + 7.dp
   Column(
     modifier = modifier,
     horizontalAlignment = Alignment.CenterHorizontally,
@@ -584,14 +584,14 @@ fun MiniFaceGrid(
 
   Column(
     modifier = modifier
-      .clip(RoundedCornerShape(6.dp))
+      .clip(RoundedCornerShape(5.dp))
       .background(bgColor)
-      .border(width = if (isHighlighted) 2.dp else 1.dp, color = borderColor, shape = RoundedCornerShape(6.dp))
-      .padding(3.dp),
-    verticalArrangement = Arrangement.spacedBy(2.dp),
+      .border(width = if (isHighlighted) 1.75.dp else 1.dp, color = borderColor, shape = RoundedCornerShape(5.dp))
+      .padding(2.dp),
+    verticalArrangement = Arrangement.spacedBy(1.5.dp),
   ) {
     for (row in 0..2) {
-      Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+      Row(horizontalArrangement = Arrangement.spacedBy(1.5.dp)) {
         for (col in 0..2) {
           val idx = row * 3 + col
           val color = stickers[idx]
